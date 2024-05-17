@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"math"
+	"math/rand"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -41,18 +42,20 @@ type authResult struct {
 
 type keyMap struct {
 	Quit key.Binding
+	Enter key.Binding
 }
 
 func (m keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{m.Quit},
-		{m.Quit},
+		{m.Enter},
 	}
 }
 
 func (m keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{
 		m.Quit,
+		m.Enter,
 	}
 }
 
@@ -78,7 +81,7 @@ func (m model) IsAuthenticated() bool {
 
 func (m model) Init() tea.Cmd {
 	if m.IsAuthenticated() {
-		go loadSaves(m.auth.User)
+		go loadSaves(m.user)
 	}
 	return tea.Batch(tea.SetWindowTitle("Pocket CLI"), tea.EnterAltScreen, m.auth.Init(), m.saves.Init())
 }
@@ -103,19 +106,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.authFailure != "" {
-			m.auth, cmd = m.auth.Update(auth.ChangeLabel{
-				Label: msg.authFailure + "\n",
-			})
+			m.auth.SetLabel(msg.authFailure + "\n")
 			return m, cmd
 		} else if msg.requestToken {
-			m.auth, cmd = m.auth.Update(auth.ChangeLabel{
-				Label: "Retrieving token in progress...\n",
-			})
+			m.auth.SetLabel("Retrieving token in progress...\n")
 			return m, cmd
 		} else if msg.openBrowser {
-			m.auth, cmd = m.auth.Update(auth.ChangeLabel{
-				Label: "Continue authentication in browser...\n",
-			})
+			m.auth.SetLabel("Continue authentication in browser...\n")
 			return m, cmd
 		} else if msg.accessToken != "" {
 			closeServer <- true
@@ -126,9 +123,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			user, err := db.SaveUser(msg.accessToken, msg.username)
 			if err != nil {
-				m.auth, _ = m.auth.Update(auth.ChangeLabel{
-					Label: "Could not save user...\n",
-				})
+				m.auth.SetLabel("Could not save user...\n")
 			}
 			go loadSaves(user)
 			m.saves.SetUser(user)
@@ -155,13 +150,13 @@ func (m model) View() string {
 	if m.errorMessage != "" {
 		view += strings.Repeat("\n", (m.window.height/2)-strings.Count(view, "\n")-2)
 		tmp := styles.TitleRedStyle.Render("! ERROR: " + m.errorMessage + " !\n")
-		view += strings.Repeat(" ", (m.window.width-lipgloss.Width(tmp))/2) + tmp // I don't know why -45 it's needed
+		view += strings.Repeat(" ", (m.window.width-lipgloss.Width(tmp))/2) + tmp
 	} else if !m.IsAuthenticated() && !m.authenticating {
 		view += strings.Repeat("\n", (m.window.height/2)-strings.Count(view, "\n")-2)
-		tmp := styles.TitleRedStyle.Render("Welcome to Pocket CLI!\n")
-		view += strings.Repeat(" ", (m.window.width-lipgloss.Width(tmp))/2) + tmp
-		tmp = styles.TitleRedStyle.Render("Press '") + styles.TitleBoldRedStyle.Render("Enter") + styles.TitleRedStyle.Render("' to start the authentication\n")
-		view += strings.Repeat(" ", (m.window.width-lipgloss.Width(tmp))-45/2) + tmp // I don't know why -45 it's needed
+		tmp := styles.TitleRedStyle.Render("Welcome to Pocket CLI!") + "\n"
+		view += strings.Repeat(" ", (m.window.width/2)-(lipgloss.Width(tmp)/2)) + tmp
+		tmp = styles.TitleRedStyle.Render("Press '") + styles.TitleBoldRedStyle.Render("Enter") + styles.TitleRedStyle.Render("' to start the authentication") + "\n"
+		view += strings.Repeat(" ", (m.window.width/2)-(lipgloss.Width(tmp)/2)) + tmp
 	} else if m.authenticating {
 		view += strings.Repeat("\n", (m.window.height/2)-strings.Count(view, "\n")-1)
 		tmp := m.auth.View()
@@ -190,6 +185,10 @@ func initModel(user models.PocketUser) model {
 				key.WithKeys("q", "ctrl+c"),
 				key.WithHelp("q", "quit"),
 			),
+			Enter: key.NewBinding(
+				key.WithKeys("enter"),
+				key.WithHelp("enter", "start atuthentication"),
+			),
 		},
 	}
 }
@@ -197,9 +196,10 @@ func initModel(user models.PocketUser) model {
 var closeServer = make(chan bool)
 
 func startAuthentication() {
-	port := "8124"
-	callbackUrl := "http://localhost:" + port + "/callback"
-	srv := &http.Server{Addr: ":" + port}
+	port := rand.Intn(20) + 8100
+	localAddress := fmt.Sprintf("http://localhost:%d", port)
+	callbackUrl := localAddress + "/callback"
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", port)}
 	code, state, err := lib.GetRequestToken(POCKET_CONSUMER_KEY, callbackUrl)
 	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		token, username, err := lib.GetAccesToken(POCKET_CONSUMER_KEY, state, code)
@@ -232,12 +232,13 @@ func loadSaves(user models.PocketUser) {
 	saves, err := db.GetPocketSaves()
 	if (err != nil && err == db.NoSavesErr) || len(saves) == 0 {
 		response, err := lib.GetAllPocketSaves(user.AccessToken)
+		sort.Sort(models.ByUpdatedOnDesc(response.Saves))
+		saves = response.Saves
 		if err != nil {
 			p.Send(getSavesResult{err: err})
 		}
-		fmt.Printf("get %d saves\n", len(response.Saves))
-		go db.InsertSaves(int32(response.Since), response.Saves)
-		p.Send(getSavesResult{count: len(response.Saves), saves: response.Saves})
+		go db.InsertSaves(int32(response.Since), saves)
+		p.Send(getSavesResult{count: len(saves), saves: saves})
 	} else if err != nil {
 		p.Send(getSavesResult{err: err})
 	} else {
@@ -253,8 +254,6 @@ func main() {
 			os.Exit(1)
 		}
 		defer f.Close()
-		l := log.New(f, "pocket ", log.LstdFlags)
-		l.Println("test")
 	}
 	if POCKET_CONSUMER_KEY == "" {
 		fmt.Println("set POCKET_CONSUMER_KEY environment variable")
