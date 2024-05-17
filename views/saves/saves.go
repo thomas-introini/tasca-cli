@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/thomas-introini/pocket-cli/globals"
 	"github.com/thomas-introini/pocket-cli/models"
 	"github.com/thomas-introini/pocket-cli/utils"
 	styles "github.com/thomas-introini/pocket-cli/views"
@@ -31,6 +32,9 @@ var (
 	helpStyle       = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
 	quitTextStyle   = lipgloss.NewStyle().Margin(1, 0, 2, 4)
 )
+
+type RefreshSavesCmd struct {
+}
 
 type window struct {
 	width  int
@@ -58,10 +62,15 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	p := globals.GetProgram()
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "R":
+			go func () {
+				p.Send(RefreshSavesCmd{})
+			}()
 		case "o":
 			selected, ok := m.list.SelectedItem().(models.PocketSave)
 			if !ok {
@@ -135,6 +144,10 @@ func New(user models.PocketUser) Model {
 			key.NewBinding(
 				key.WithKeys("o"),
 				key.WithHelp("o", "Open"),
+			),
+			key.NewBinding(
+				key.WithKeys("R"),
+				key.WithHelp("R", "Refresh saves"),
 			),
 		}
 	}

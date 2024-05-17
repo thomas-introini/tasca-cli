@@ -141,7 +141,7 @@ func SaveUser(accessToken, username string) (models.PocketUser, error) {
 	return user, err
 }
 
-func InsertSaves(since int32, saves []models.PocketSave) error {
+func InsertSaves(since float64, saves []models.PocketSave) error {
 	tx, err := DB.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: false})
 	if err != nil {
 		defer tx.Rollback()
@@ -158,9 +158,9 @@ func InsertSaves(since int32, saves []models.PocketSave) error {
 		description = excluded.description,
 		 updated_on = excluded.updated_on`,
 			save.Id,
-			save.Title,
+			save.SaveTitle,
 			save.Url,
-			save.Description,
+			save.SaveDescription,
 			save.UpdatedOn,
 		)
 		if err != nil {

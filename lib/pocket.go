@@ -7,19 +7,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 
 	uuid "github.com/google/uuid"
+	"github.com/thomas-introini/pocket-cli/config"
 	"github.com/thomas-introini/pocket-cli/models"
 	"github.com/thomas-introini/pocket-cli/utils"
 )
 
 const POCKET_URL = "https://getpocket.com"
 
-var POCKET_CONSUMER_KEY = os.Getenv("POCKET_CONSUMER_KEY")
-
-func GetRequestToken(consumerKey string, redirectURI string) (code string, state string, err error) {
+func GetRequestToken(redirectURI string) (code string, state string, err error) {
+	consumerKey := config.GetConfig().PocketConsumerKey
 	uuid, err := uuid.NewRandom()
 	if err != nil {
 		return
@@ -51,7 +50,8 @@ func GetRequestToken(consumerKey string, redirectURI string) (code string, state
 	return
 }
 
-func GetAccesToken(consumerKey string, state string, code string) (accessToken string, username string, err error) {
+func GetAccesToken(state string, code string) (accessToken string, username string, err error) {
+	consumerKey := config.GetConfig().PocketConsumerKey
 	resp, err := http.PostForm(POCKET_URL+"/v3/oauth/authorize", url.Values{"consumer_key": {consumerKey}, "code": {code}})
 	if err != nil {
 		return
@@ -101,13 +101,15 @@ type PocketSavesResponse struct {
 	Saves []models.PocketSave
 }
 
-func GetAllPocketSaves(accessToken string) (PocketSavesResponse, error) {
+func GetAllPocketSaves(accessToken string, since float64) (PocketSavesResponse, error) {
+	consumerKey := config.GetConfig().PocketConsumerKey
 	body := map[string]any{
-		"consumer_key": POCKET_CONSUMER_KEY,
+		"consumer_key": consumerKey,
 		"access_token": accessToken,
 		"state":        "all",
 		"sort":         "newest",
 		"detailType":   "simple",
+		"since": since,
 	}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
@@ -129,7 +131,7 @@ func GetAllPocketSaves(accessToken string) (PocketSavesResponse, error) {
 	if err != nil {
 		return PocketSavesResponse{}, err
 	}
-	since := jsonResponse["since"].(float64)
+	since = jsonResponse["since"].(float64)
 	list := jsonResponse["list"].(map[string]interface{})
 	saves := make([]models.PocketSave, 0)
 	for _, save := range list {
@@ -138,16 +140,31 @@ func GetAllPocketSaves(accessToken string) (PocketSavesResponse, error) {
 		if err != nil {
 			return PocketSavesResponse{}, err
 		}
+		addedOn, err := strconv.Atoi(save["time_added"].(string))
+		if err != nil {
+			return PocketSavesResponse{}, err
+		}
 		e := save["excerpt"]
 		excerpt := ""
 		if e != nil {
 			excerpt = e.(string)
 		}
+
+		givenTitle := save["given_title"]
+		resolvedTitle := save["resolved_title"]
+		title := "Untitled"
+		if resolvedTitle != nil {
+			title = resolvedTitle.(string)
+		} else if givenTitle != nil {
+			title = givenTitle.(string)
+		}
+
 		saves = append(saves, models.PocketSave{
 			Id:              save["item_id"].(string),
-			SaveTitle:       save["given_title"].(string),
+			SaveTitle:       title,
 			Url:             save["given_url"].(string),
 			SaveDescription: excerpt,
+			AddedOn:         int32(addedOn),
 			UpdatedOn:       int32(updatedOn),
 		})
 	}
