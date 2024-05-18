@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/thomas-introini/pocket-cli/globals"
 	"github.com/thomas-introini/pocket-cli/models"
 	"github.com/thomas-introini/pocket-cli/utils"
 	styles "github.com/thomas-introini/pocket-cli/views"
@@ -62,15 +61,14 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	p := globals.GetProgram()
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "R":
-			go func () {
-				p.Send(RefreshSavesCmd{})
-			}()
+			cmd = func() tea.Msg {
+				return RefreshSavesCmd{}
+			}
 		case "o":
 			selected, ok := m.list.SelectedItem().(models.PocketSave)
 			if !ok {
@@ -84,10 +82,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		m.window.width = msg.Width
-		m.window.height = msg.Height - 1
+		m.window.height = msg.Height - 3
 
 		m.list.SetWidth(msg.Width)
-		m.list.SetHeight(msg.Height - 1)
+		m.list.SetHeight(msg.Height - 3)
 	}
 	var spinnerCmd tea.Cmd
 	m.spinner, spinnerCmd = m.spinner.Update(msg)
@@ -118,10 +116,6 @@ func (m *Model) SetSaves(saves []models.PocketSave) {
 	m.list.SetItems(items)
 }
 
-func (m *Model) SetUser(user models.PocketUser) {
-	m.list.Title = user.Username + " Saves"
-}
-
 func New(user models.PocketUser) Model {
 	s := spinner.New()
 	s.Spinner = spinner.Line
@@ -132,8 +126,8 @@ func New(user models.PocketUser) Model {
 	id.Styles.SelectedDesc = selectedItemDescriptionStyle
 
 	list := list.New(make([]list.Item, 0), id, 10, 10)
-	list.Title = user.Username + " Saves"
-	list.SetShowTitle(true)
+	list.Title = "Saves"
+	list.SetShowTitle(false)
 	list.Styles.Title = titleStyle
 	list.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{

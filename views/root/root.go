@@ -29,11 +29,10 @@ type getSavesResult struct {
 }
 
 type authResult struct {
-	authFailure  string
-	requestToken bool
-	openBrowser  bool
-	accessToken  string
-	username     string
+	authFailure string
+	openBrowser bool
+	accessToken string
+	username    string
 }
 
 type keyMap struct {
@@ -68,6 +67,7 @@ type model struct {
 	saves          saves.Model
 	help           help.Model
 	errorMessage   string
+	message        string
 	keys           keyMap
 }
 
@@ -76,13 +76,18 @@ func (m model) IsAuthenticated() bool {
 }
 
 func (m model) Init() tea.Cmd {
-	if m.IsAuthenticated() {
-		go loadSaves(m.user)
-	}
-	return tea.Batch(tea.SetWindowTitle("Pocket CLI"), tea.EnterAltScreen, m.auth.Init(), m.saves.Init())
+	return tea.Batch(
+		tea.SetWindowTitle("Pocket CLI"),
+		tea.EnterAltScreen,
+		m.auth.Init(),
+		m.saves.Init(),
+		loadSaves(m),
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd, saveCmd, authCmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.window.width, m.window.height = msg.Width, msg.Height
@@ -93,19 +98,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if !m.IsAuthenticated() {
 				m.authenticating = true
-				go startAuthentication()
+				cmd = startAuthentication()
 			}
 		}
 	case saves.RefreshSavesCmd:
-		go refreshSaves(m.user)
+		cmd = refreshSaves(m)
 	case authResult:
 		if !m.authenticating {
 			return m, nil
 		}
 		if msg.authFailure != "" {
 			m.auth.SetLabel(msg.authFailure + "\n")
-		} else if msg.requestToken {
-			m.auth.SetLabel("Retrieving token in progress...\n")
 		} else if msg.openBrowser {
 			m.auth.SetLabel("Continue authentication in browser...\n")
 		} else if msg.accessToken != "" {
@@ -115,13 +118,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				AccessToken: msg.accessToken,
 				Username:    msg.username,
 			}
-			user, err := db.SaveUser(msg.accessToken, msg.username)
+			_, err := db.SaveUser(msg.accessToken, msg.username)
 			if err != nil {
 				m.auth.SetLabel("Could not save user...\n")
 				m.authenticating = false
 			}
-			go loadSaves(user)
-			m.saves.SetUser(user)
+			cmd = loadSaves(m)
 		}
 	case getSavesResult:
 		if msg.err != nil {
@@ -130,10 +132,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.saves.SetSaves(msg.saves)
 		}
 	}
-	var saveCmd, authCmd tea.Cmd
 	m.saves, saveCmd = m.saves.Update(msg)
 	m.auth, authCmd = m.auth.Update(msg)
-	return m, tea.Batch(saveCmd, authCmd)
+	return m, tea.Batch(cmd, saveCmd, authCmd)
 }
 
 func (m model) View() string {
@@ -156,7 +157,16 @@ func (m model) View() string {
 		tmp := m.auth.View()
 		view += strings.Repeat(" ", (m.window.width-lipgloss.Width(tmp))/2) + tmp
 	} else {
-		view += strings.Repeat("\n", (m.window.height/2)-strings.Count(view, "\n")-1)
+		var msg string
+		if m.message == "" {
+			msg = styles.TitleBoldRedStyle.Render("Tasca")
+		} else {
+			msg = m.message
+		}
+		toolbarMaxWidth := m.window.width - 5
+		toolbarUser := lipgloss.NewStyle().MarginRight(1).Render(m.user.Username)
+		toolbarMessage := lipgloss.NewStyle().MarginLeft(1).Width(toolbarMaxWidth - 1 - lipgloss.Width(toolbarUser)).Render(msg)
+		view += styles.ToolbarMessage.Width(toolbarMaxWidth).Render(toolbarMessage+toolbarUser) + "\n"
 		view += m.saves.View()
 		return view
 	}
@@ -189,72 +199,83 @@ func New(user models.PocketUser) model {
 
 var closeServer = make(chan bool)
 
-func startAuthentication() {
-	p := globals.GetProgram()
-	port := rand.Intn(20) + 8100
-	localAddress := fmt.Sprintf("http://localhost:%d", port)
-	callbackUrl := localAddress + "/callback"
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", port)}
-	code, state, err := lib.GetRequestToken(callbackUrl)
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		token, username, err := lib.GetAccesToken(state, code)
-		if err != nil {
-			p.Send(authResult{authFailure: err.Error()})
-		} else {
-			p.Send(authResult{accessToken: token, username: username})
-		}
-		fmt.Fprint(w, "Authentication successful. You can close this tab now.")
-	})
-	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			p.Send(authResult{authFailure: err.Error()})
-		}
-	}()
-	if err != nil {
-		p.Send(authResult{authFailure: err.Error()})
-	} else {
-		p.Send(authResult{requestToken: true})
+func startAuthentication() tea.Cmd {
+	return func() tea.Msg {
+		p := globals.GetProgram()
+		port := rand.Intn(20) + 8100
+		localAddress := fmt.Sprintf("http://localhost:%d", port)
+		callbackUrl := localAddress + "/callback"
+		srv := &http.Server{Addr: fmt.Sprintf(":%d", port)}
+		code, state, err := lib.GetRequestToken(callbackUrl)
+		http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+			token, username, err := lib.GetAccesToken(state, code)
+			if err != nil {
+				p.Send(authResult{authFailure: err.Error()})
+			} else {
+				p.Send(authResult{accessToken: token, username: username})
+			}
+			fmt.Fprint(w, "Authentication successful. You can close this tab now.")
+		})
 		go func() {
-			<-closeServer
-			srv.Shutdown(context.Background())
+			if err := srv.ListenAndServe(); err != nil {
+				p.Send(authResult{authFailure: err.Error()})
+			}
 		}()
-		lib.OpenAuthorizationURL(code, callbackUrl)
-		p.Send(authResult{openBrowser: true})
-	}
-}
-
-func loadSaves(user models.PocketUser) {
-	p := globals.GetProgram()
-	saves, err := db.GetPocketSaves()
-	if (err != nil && err == db.NoSavesErr) || len(saves) == 0 {
-		response, err := lib.GetAllPocketSaves(user.AccessToken, 0)
-		sort.Sort(models.ByUpdatedOnDesc(response.Saves))
-		saves = response.Saves
 		if err != nil {
-			p.Send(getSavesResult{err: err})
+			return authResult{authFailure: err.Error()}
+		} else {
+			go func() {
+				<-closeServer
+				srv.Shutdown(context.Background())
+			}()
+			lib.OpenAuthorizationURL(code, callbackUrl)
+			return authResult{openBrowser: true}
 		}
-		go db.InsertSaves(response.Since, saves)
-		p.Send(getSavesResult{count: len(saves), saves: saves})
-	} else if err != nil {
-		p.Send(getSavesResult{err: err})
-	} else {
-		p.Send(getSavesResult{count: len(saves), saves: saves})
 	}
 }
 
-func refreshSaves(user models.PocketUser) {
-	p := globals.GetProgram()
-	response, err := lib.GetAllPocketSaves(user.AccessToken, float64(user.SavesUpdatedOn))
-	if err != nil {
-		p.Send(getSavesResult{err: err})
+func loadSaves(m model) tea.Cmd {
+	if m.IsAuthenticated() {
+		return func() tea.Msg {
+			saves, err := db.GetPocketSaves()
+			if (err != nil && err == db.NoSavesErr) || len(saves) == 0 {
+				response, err := lib.GetAllPocketSaves(m.user.AccessToken, 0)
+				sort.Sort(models.ByUpdatedOnDesc(response.Saves))
+				saves = response.Saves
+				if err != nil {
+					return getSavesResult{err: err}
+				}
+				go db.InsertSaves(response.Since, saves)
+				return getSavesResult{count: len(saves), saves: saves}
+			} else if err != nil {
+				return getSavesResult{err: err}
+			} else {
+				return getSavesResult{count: len(saves), saves: saves}
+			}
+		}
+	} else {
+		return nil
 	}
-	err = db.InsertSaves(response.Since, response.Saves)
-	if err != nil {
-		p.Send(getSavesResult{err: err})
+}
+
+func refreshSaves(m model) tea.Cmd {
+	if m.IsAuthenticated() {
+		return func() tea.Msg {
+			response, err := lib.GetAllPocketSaves(m.user.AccessToken, float64(m.user.SavesUpdatedOn))
+			if err != nil {
+				return getSavesResult{err: err}
+			}
+			err = db.InsertSaves(response.Since, response.Saves)
+			if err != nil {
+				return getSavesResult{err: err}
+			}
+			saves, err := db.GetPocketSaves()
+			if err != nil {
+				return getSavesResult{err: err}
+			}
+			return getSavesResult{count: len(saves), saves: saves}
+		}
+	} else {
+		return nil
 	}
-	saves, err := db.GetPocketSaves()
-	if err != nil {
-		p.Send(getSavesResult{err: err})
-	}
-	p.Send(getSavesResult{count: len(saves), saves: saves})
 }
