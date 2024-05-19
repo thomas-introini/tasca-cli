@@ -20,6 +20,7 @@ import (
 	styles "github.com/thomas-introini/pocket-cli/views"
 	"github.com/thomas-introini/pocket-cli/views/auth"
 	"github.com/thomas-introini/pocket-cli/views/saves"
+	"github.com/thomas-introini/pocket-cli/views/spinnerlabel"
 )
 
 type getSavesResult struct {
@@ -67,7 +68,7 @@ type model struct {
 	saves          saves.Model
 	help           help.Model
 	errorMessage   string
-	message        string
+	message        spinnerlabel.Model
 	keys           keyMap
 }
 
@@ -81,12 +82,13 @@ func (m model) Init() tea.Cmd {
 		tea.EnterAltScreen,
 		m.auth.Init(),
 		m.saves.Init(),
+		m.message.Init(),
 		loadSaves(m),
 	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd, saveCmd, authCmd tea.Cmd
+	var cmd, saveCmd, authCmd, messageCmd tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -103,6 +105,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case saves.RefreshSavesCmd:
 		cmd = refreshSaves(m)
+		m.message.SetShow(true)
+		m.message.SetLabel("Refreshing saves...")
 	case authResult:
 		if !m.authenticating {
 			return m, nil
@@ -131,10 +135,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.saves.SetSaves(msg.saves)
 		}
+		m.message.SetShow(false)
 	}
 	m.saves, saveCmd = m.saves.Update(msg)
 	m.auth, authCmd = m.auth.Update(msg)
-	return m, tea.Batch(cmd, saveCmd, authCmd)
+	m.message, messageCmd = m.message.Update(msg)
+	return m, tea.Batch(cmd, saveCmd, authCmd, messageCmd)
 }
 
 func (m model) View() string {
@@ -158,11 +164,7 @@ func (m model) View() string {
 		view += strings.Repeat(" ", (m.window.width-lipgloss.Width(tmp))/2) + tmp
 	} else {
 		var msg string
-		if m.message == "" {
-			msg = styles.TitleBoldRedStyle.Render("Tasca")
-		} else {
-			msg = m.message
-		}
+		msg = m.message.View()
 		toolbarMaxWidth := m.window.width - 5
 		toolbarUser := lipgloss.NewStyle().MarginRight(1).Render(m.user.Username)
 		toolbarMessage := lipgloss.NewStyle().MarginLeft(1).Width(toolbarMaxWidth - 1 - lipgloss.Width(toolbarUser)).Render(msg)
@@ -184,6 +186,7 @@ func New(user models.PocketUser) model {
 		auth:           auth.New(),
 		saves:          saves.New(user),
 		help:           help.New(),
+		message:        spinnerlabel.New("", "Tasca"),
 		keys: keyMap{
 			Quit: key.NewBinding(
 				key.WithKeys("q", "ctrl+c"),
