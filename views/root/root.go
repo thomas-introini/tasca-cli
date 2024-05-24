@@ -19,6 +19,7 @@ import (
 	"github.com/thomas-introini/pocket-cli/models"
 	styles "github.com/thomas-introini/pocket-cli/views"
 	"github.com/thomas-introini/pocket-cli/views/auth"
+	"github.com/thomas-introini/pocket-cli/views/itemdetail"
 	"github.com/thomas-introini/pocket-cli/views/saves"
 	"github.com/thomas-introini/pocket-cli/views/spinnerlabel"
 )
@@ -67,6 +68,7 @@ type model struct {
 	auth           auth.Model
 	saves          saves.Model
 	help           help.Model
+	itemdetail     itemdetail.Model
 	errorMessage   string
 	message        spinnerlabel.Model
 	keys           keyMap
@@ -88,7 +90,10 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd, saveCmd, authCmd, messageCmd tea.Cmd
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -100,13 +105,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if !m.IsAuthenticated() {
 				m.authenticating = true
-				cmd = startAuthentication()
+				cmds = append(cmds, startAuthentication())
 			}
+		case "esc":
+			m.itemdetail.SetItem(models.PocketSave{})
 		}
 	case saves.RefreshSavesCmd:
-		cmd = refreshSaves(m)
+		cmds = append(cmds, refreshSaves(m))
 		m.message.SetShow(true)
 		m.message.SetLabel("Refreshing saves...")
+	case saves.ViewSaveCmd:
+		save := msg.Save
+		m.itemdetail.SetItem(save)
 	case authResult:
 		if !m.authenticating {
 			return m, nil
@@ -127,7 +137,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.auth.SetLabel("Could not save user...\n")
 				m.authenticating = false
 			}
-			cmd = loadSaves(m)
+			cmds = append(cmds, loadSaves(m))
 		}
 	case getSavesResult:
 		if msg.err != nil {
@@ -137,10 +147,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.message.SetShow(false)
 	}
-	m.saves, saveCmd = m.saves.Update(msg)
-	m.auth, authCmd = m.auth.Update(msg)
-	m.message, messageCmd = m.message.Update(msg)
-	return m, tea.Batch(cmd, saveCmd, authCmd, messageCmd)
+
+	m.saves, cmd = m.saves.Update(msg)
+	cmds = append(cmds, cmd)
+	m.auth, cmd = m.auth.Update(msg)
+	cmds = append(cmds, cmd)
+	m.message, cmd = m.message.Update(msg)
+	cmds = append(cmds, cmd)
+	m.itemdetail, cmd = m.itemdetail.Update(msg)
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
@@ -169,7 +184,11 @@ func (m model) View() string {
 		toolbarUser := lipgloss.NewStyle().MarginRight(1).Render(m.user.Username)
 		toolbarMessage := lipgloss.NewStyle().MarginLeft(1).Width(toolbarMaxWidth - 1 - lipgloss.Width(toolbarUser)).Render(msg)
 		view += styles.ToolbarMessage.Width(toolbarMaxWidth).Render(toolbarMessage+toolbarUser) + "\n"
-		view += m.saves.View()
+		if m.itemdetail.IsItemSet() {
+			view += m.itemdetail.View()
+		} else {
+			view += m.saves.View()
+		}
 		return view
 	}
 	helpView := m.help.View(m.keys)

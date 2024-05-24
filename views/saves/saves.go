@@ -35,6 +35,10 @@ var (
 type RefreshSavesCmd struct {
 }
 
+type ViewSaveCmd struct {
+	Save models.PocketSave
+}
+
 type window struct {
 	width  int
 	height int
@@ -64,22 +68,35 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "R":
-			cmd = func() tea.Msg {
-				return RefreshSavesCmd{}
-			}
-		case "o":
-			selected, ok := m.list.SelectedItem().(models.PocketSave)
-			if !ok {
-				return m, nil
-			}
-			err := utils.OpenInBrowser(selected.Url)
-			if err != nil {
-				m.errorMessage = err.Error()
+		if m.list.FilterState() != list.Filtering {
+			switch msg.String() {
+			case "R":
+				cmd = func() tea.Msg {
+					return RefreshSavesCmd{}
+				}
+			case "o":
+				selected, ok := m.list.SelectedItem().(models.PocketSave)
+				if !ok {
+					return m, nil
+				}
+				err := utils.OpenInBrowser(selected.Url)
+				if err != nil {
+					m.errorMessage = err.Error()
+					return m, nil
+				}
+			case "enter":
+				selected, ok := m.list.SelectedItem().(models.PocketSave)
+				if !ok {
+					return m, nil
+				}
+				return m, func() tea.Msg {
+					return ViewSaveCmd{Save: selected}
+				}
+			case "esc":
 				return m, nil
 			}
 		}
+
 	case tea.WindowSizeMsg:
 		m.window.width = msg.Width
 		m.window.height = msg.Height - 3

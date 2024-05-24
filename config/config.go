@@ -7,7 +7,9 @@ type Config struct {
 var instance *Config
 
 func InitConfig(consumerKey string) {
-	instance = &Config{consumerKey}
+	instance = &Config{
+		PocketConsumerKey: consumerKey,
+	}
 }
 
 func GetConfig() Config {

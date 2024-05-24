@@ -37,7 +37,7 @@ func main() {
 		fmt.Println("Error while retrieving user from database:", err)
 		os.Exit(1)
 	}
-	p := tea.NewProgram(root.New(user))
+	p := tea.NewProgram(root.New(user), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	globals.InitProgram(p)
 	if _, err = p.Run(); err != nil {
 		fmt.Println("Could not run the program", err)
