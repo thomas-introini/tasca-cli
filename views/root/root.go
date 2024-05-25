@@ -258,6 +258,8 @@ func startAuthentication() tea.Cmd {
 
 func loadSaves(m model) tea.Cmd {
 	if m.IsAuthenticated() {
+		m.message.SetShow(true)
+		m.message.SetLabel("Refreshing saves...")
 		return func() tea.Msg {
 			saves, err := db.GetPocketSaves()
 			if (err != nil && err == db.NoSavesErr) || len(saves) == 0 {

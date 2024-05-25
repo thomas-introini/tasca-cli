@@ -1,6 +1,7 @@
 package itemdetail
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -36,7 +37,7 @@ func (m *Model) View() string {
 
 func (m *Model) SetItem(item models.PocketSave) {
 	m.item = item
-	m.viewport = viewport.New(m.width -4, m.height -20)
+	m.viewport = viewport.New(m.width-4, m.height-20)
 	m.viewport.Style = m.viewport.Style.MarginLeft(3)
 	m.viewport.YOffset = 20
 	if m.IsItemSet() {
@@ -55,6 +56,9 @@ func getContent(item models.PocketSave) string {
 	content := ""
 	content += styles.TitleBoldRedStyle.Render("Title:") + " " + item.SaveTitle + "\n"
 	content += styles.TitleBoldRedStyle.Render("URL:") + " " + item.Url + "\n"
+	if item.TimeToRead > 0 {
+		content += styles.TitleBoldRedStyle.Render("Reading time:") + " ~" + strconv.Itoa(int(item.TimeToRead)) + " mins\n"
+	}
 	content += styles.TitleBoldRedStyle.Render("Added on:") + " " + addedOn.Format("Mon Jan 2 2006 15:04") + "\n"
 	content += "\n"
 	content += item.SaveDescription

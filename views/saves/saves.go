@@ -54,8 +54,6 @@ type Model struct {
 	errorMessage string
 }
 
-type itemDelegate struct{}
-
 type UpdateSaves struct {
 	Saves []models.PocketSave
 }
@@ -76,27 +74,22 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				}
 			case "o":
 				selected, ok := m.list.SelectedItem().(models.PocketSave)
-				if !ok {
-					return m, nil
-				}
-				err := utils.OpenInBrowser(selected.Url)
-				if err != nil {
-					m.errorMessage = err.Error()
-					return m, nil
+				if ok {
+					cmd = open(selected.Url)
 				}
 			case "enter":
 				selected, ok := m.list.SelectedItem().(models.PocketSave)
-				if !ok {
-					return m, nil
-				}
-				return m, func() tea.Msg {
-					return ViewSaveCmd{Save: selected}
+				if ok {
+					return m, func() tea.Msg {
+						return ViewSaveCmd{Save: selected}
+					}
 				}
 			case "esc":
 				return m, nil
 			}
 		}
-
+	case openError:
+		m.errorMessage = msg.error.Error()
 	case tea.WindowSizeMsg:
 		m.window.width = msg.Width
 		m.window.height = msg.Height - 3
@@ -169,5 +162,19 @@ func New(user models.PocketUser) Model {
 		spinner:      s,
 		user:         user,
 		errorMessage: "",
+	}
+}
+
+type openError struct {
+	error error
+}
+
+func open(url string) tea.Cmd {
+	return func() tea.Msg {
+		err := utils.OpenInBrowser(url)
+		if err != nil {
+			return openError{err}
+		}
+		return nil
 	}
 }

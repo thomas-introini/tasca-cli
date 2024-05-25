@@ -13,8 +13,9 @@ type PocketSave struct {
 	SaveTitle       string
 	Url             string
 	SaveDescription string
-	AddedOn         int32
-	UpdatedOn       int32
+	TimeToRead      uint16
+	AddedOn         uint32
+	UpdatedOn       uint32
 }
 
 type ByUpdatedOnDesc []PocketSave
@@ -23,8 +24,13 @@ func (s ByUpdatedOnDesc) Len() int           { return len(s) }
 func (s ByUpdatedOnDesc) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 func (s ByUpdatedOnDesc) Less(i, j int) bool { return s[j].UpdatedOn < s[i].UpdatedOn }
 
-func (i PocketSave) Title() string {
-	return i.SaveTitle
+func (i PocketSave) Title() (title string) {
+	if i.SaveTitle == "" {
+		title = i.Url
+	} else {
+		title = i.SaveTitle
+	}
+	return
 }
 
 func (i PocketSave) Description() string {

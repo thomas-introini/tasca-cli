@@ -109,7 +109,7 @@ func GetAllPocketSaves(accessToken string, since float64) (PocketSavesResponse, 
 		"state":        "all",
 		"sort":         "newest",
 		"detailType":   "simple",
-		"since": since,
+		"since":        since,
 	}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
@@ -153,10 +153,15 @@ func GetAllPocketSaves(accessToken string, since float64) (PocketSavesResponse, 
 		givenTitle := save["given_title"]
 		resolvedTitle := save["resolved_title"]
 		title := "Untitled"
-		if resolvedTitle != nil {
+		if resolvedTitle != nil && resolvedTitle != "" {
 			title = resolvedTitle.(string)
 		} else if givenTitle != nil {
 			title = givenTitle.(string)
+		}
+
+		var timeToRead uint16
+		if ttr := save["time_to_read"]; ttr != nil && ttr != "" {
+			timeToRead = uint16(ttr.(float64))
 		}
 
 		saves = append(saves, models.PocketSave{
@@ -164,8 +169,9 @@ func GetAllPocketSaves(accessToken string, since float64) (PocketSavesResponse, 
 			SaveTitle:       title,
 			Url:             save["given_url"].(string),
 			SaveDescription: excerpt,
-			AddedOn:         int32(addedOn),
-			UpdatedOn:       int32(updatedOn),
+			TimeToRead:      timeToRead,
+			AddedOn:         uint32(addedOn),
+			UpdatedOn:       uint32(updatedOn),
 		})
 	}
 

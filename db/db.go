@@ -33,11 +33,25 @@ func ConnectDB() error {
 	}
 	_, err = os.Stat(os.Getenv("HOME") + "/" + DB_PATH)
 	if os.IsNotExist(err) {
-		_, err = db.Exec("CREATE TABLE user (username TEXT PRIMARY KEY, access_token TEXT, saves_updated_on INTEGER(8))")
+		_, err = db.Exec(`
+			CREATE TABLE user (
+				username         TEXT PRIMARY KEY,
+				access_token     TEXT,
+				saves_updated_on INTEGER(8)
+			)`)
 		if err != nil {
 			return err
 		}
-		_, err = db.Exec("CREATE TABLE save (id string PRIMARY KEY, title TEXT, url TEXT, description TEXT, updated_on INTEGER(8))")
+		_, err = db.Exec(`
+			CREATE TABLE save (
+				id           TEXT PRIMARY KEY,
+				title        TEXT,
+				url          TEXT,
+				description  TEXT,
+				time_to_read INTEGER,
+				added_on     INTEGER(8),
+				updated_on   INTEGER(8)
+			)`)
 		if err != nil {
 			return err
 		}
@@ -97,13 +111,23 @@ func GetPocketSaves() (list []models.PocketSave, err error) {
 
 	for rows.Next() {
 		var (
-			id        string
-			title     string
-			url       string
-			desc      string
-			updatedOn int32
+			id         string
+			title      string
+			url        string
+			desc       string
+			timeToRead uint16
+			addedOn    uint32
+			updatedOn  uint32
 		)
-		if err = rows.Scan(&id, &title, &url, &desc, &updatedOn); err != nil {
+		if err = rows.Scan(
+			&id,
+			&title,
+			&url,
+			&desc,
+			&timeToRead,
+			&addedOn,
+			&updatedOn,
+		); err != nil {
 			return
 		}
 		save := models.PocketSave{
@@ -111,6 +135,8 @@ func GetPocketSaves() (list []models.PocketSave, err error) {
 			SaveTitle:       title,
 			Url:             url,
 			SaveDescription: desc,
+			TimeToRead:      timeToRead,
+			AddedOn:         addedOn,
 			UpdatedOn:       updatedOn,
 		}
 		list = append(list, save)
@@ -149,18 +175,22 @@ func InsertSaves(since float64, saves []models.PocketSave) error {
 	}
 	for _, save := range saves {
 		_, err := tx.Exec(
-			`INSERT INTO save(id, title, url, description, updated_on)
-			 VALUES(?,?,?,?,?)
+			`INSERT INTO save(id, title, url, description, time_to_read, added_on, updated_on)
+			 VALUES(?,?,?,?,?,?,?)
 			 ON CONFLICT(id) DO
 			 UPDATE SET
 			  title = excluded.title,
 				url = excluded.url,
 		description = excluded.description,
+	   time_to_read = excluded.time_to_read,
+		   added_on = excluded.added_on,
 		 updated_on = excluded.updated_on`,
 			save.Id,
 			save.SaveTitle,
 			save.Url,
 			save.SaveDescription,
+			save.TimeToRead,
+			save.AddedOn,
 			save.UpdatedOn,
 		)
 		if err != nil {
