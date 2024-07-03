@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/thomas-introini/pocket-cli/db"
 	"github.com/thomas-introini/pocket-cli/globals"
+	"github.com/thomas-introini/pocket-cli/helpkeys"
 	"github.com/thomas-introini/pocket-cli/lib"
 	"github.com/thomas-introini/pocket-cli/models"
 	styles "github.com/thomas-introini/pocket-cli/views"
@@ -98,6 +99,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.window.width, m.window.height = msg.Width, msg.Height
+		m.help.Width = m.window.width - 5
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -115,8 +117,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message.SetShow(true)
 		m.message.SetLabel("Refreshing saves...")
 	case saves.ViewSaveCmd:
-		save := msg.Save
-		m.itemdetail.SetItem(save)
+		if msg.Open || m.itemdetail.IsItemSet() {
+			save := msg.Save
+			m.itemdetail.SetItem(save)
+		}
 	case authResult:
 		if !m.authenticating {
 			return m, nil
@@ -163,6 +167,7 @@ func (m model) View() string {
 		return "\n"
 	}
 	view := ""
+	helpView := m.help.View(m.keys)
 	if m.errorMessage != "" {
 		view += strings.Repeat("\n", (m.window.height/2)-strings.Count(view, "\n")-2)
 		tmp := styles.TitleRedStyle.Render("! ERROR: " + m.errorMessage + " !\n")
@@ -186,12 +191,12 @@ func (m model) View() string {
 		view += styles.ToolbarMessage.Width(toolbarMaxWidth).Render(toolbarMessage+toolbarUser) + "\n"
 		if m.itemdetail.IsItemSet() {
 			view += m.itemdetail.View()
+			helpView = m.help.View(getItemDetailKeys(m.itemdetail.GetItem()))
 		} else {
 			view += m.saves.View()
+			helpView = ""
 		}
-		return view
 	}
-	helpView := m.help.View(m.keys)
 	height := strings.Count(view, "\n") + strings.Count(helpView, "\n")
 	remainingHeight := math.Max(float64(m.window.height-height-1), 0)
 	return view + strings.Repeat("\n", int(remainingHeight)) + helpView
@@ -206,6 +211,7 @@ func New(user models.PocketUser) model {
 		saves:          saves.New(user),
 		help:           help.New(),
 		message:        spinnerlabel.New("", "Tasca"),
+		itemdetail:     itemdetail.New(),
 		keys: keyMap{
 			Quit: key.NewBinding(
 				key.WithKeys("q", "ctrl+c"),
@@ -219,12 +225,41 @@ func New(user models.PocketUser) model {
 	}
 }
 
+func getItemDetailKeys(save models.PocketSave) help.KeyMap {
+	keys := helpkeys.ItemdetailsKeys{
+		Quit: key.NewBinding(
+			key.WithKeys("q", "ctrl+c"),
+			key.WithHelp("q", "quit"),
+		),
+		Open: key.NewBinding(
+			key.WithKeys("o"),
+			key.WithHelp("o", "open"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
+		),
+	}
+	if save.Status == models.StatusOK {
+		keys.Archive = key.NewBinding(
+			key.WithKeys("A"),
+			key.WithHelp("A", "archive"),
+		)
+	} else {
+		keys.Unarchive = key.NewBinding(
+			key.WithKeys("A"),
+			key.WithHelp("A", "move to saves"),
+		)
+	}
+	return keys
+}
+
 var closeServer = make(chan bool)
 
 func startAuthentication() tea.Cmd {
 	return func() tea.Msg {
 		p := globals.GetProgram()
-		port := rand.Intn(20) + 8100
+		port := rand.Intn(20) + 7500
 		localAddress := fmt.Sprintf("http://localhost:%d", port)
 		callbackUrl := localAddress + "/callback"
 		srv := &http.Server{Addr: fmt.Sprintf(":%d", port)}
@@ -264,12 +299,15 @@ func loadSaves(m model) tea.Cmd {
 			saves, err := db.GetPocketSaves()
 			if (err != nil && err == db.NoSavesErr) || len(saves) == 0 {
 				response, err := lib.GetAllPocketSaves(m.user.AccessToken, 0)
-				sort.Sort(models.ByUpdatedOnDesc(response.Saves))
 				saves = response.Saves
 				if err != nil {
 					return getSavesResult{err: err}
 				}
-				go db.InsertSaves(response.Since, saves)
+				saves, err := db.InsertSaves(response.Since, saves)
+				if err != nil {
+					return getSavesResult{err: err}
+				}
+				sort.Sort(models.ByAddedOnDesc(saves))
 				return getSavesResult{count: len(saves), saves: saves}
 			} else if err != nil {
 				return getSavesResult{err: err}
@@ -289,14 +327,11 @@ func refreshSaves(m model) tea.Cmd {
 			if err != nil {
 				return getSavesResult{err: err}
 			}
-			err = db.InsertSaves(response.Since, response.Saves)
+			saves, err := db.InsertSaves(response.Since, response.Saves)
 			if err != nil {
 				return getSavesResult{err: err}
 			}
-			saves, err := db.GetPocketSaves()
-			if err != nil {
-				return getSavesResult{err: err}
-			}
+			sort.Sort(models.ByAddedOnDesc(saves))
 			return getSavesResult{count: len(saves), saves: saves}
 		}
 	} else {

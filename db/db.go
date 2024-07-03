@@ -46,8 +46,11 @@ func ConnectDB() error {
 			CREATE TABLE save (
 				id           TEXT PRIMARY KEY,
 				title        TEXT,
-				url          TEXT,
+				url          TEXT NOT NULL,
 				description  TEXT,
+				status       INTEGER(1),
+				favorite     INTEGER(1),
+			    tags         TEXT,
 				time_to_read INTEGER,
 				added_on     INTEGER(8),
 				updated_on   INTEGER(8)
@@ -98,9 +101,10 @@ func GetLoggedUser() (user models.PocketUser, err error) {
 func GetPocketSaves() (list []models.PocketSave, err error) {
 	list = make([]models.PocketSave, 0)
 	rows, err := DB.Query(`
-		SELECT *
+		SELECT id, title, url, description, time_to_read, status, favorite, tags, added_on, updated_on
 		  FROM save
-		 ORDER BY updated_on DESC`,
+		 WHERE status = 0
+		 ORDER BY added_on DESC`,
 	)
 	if err == sql.ErrNoRows {
 		err = NoSavesErr
@@ -116,6 +120,9 @@ func GetPocketSaves() (list []models.PocketSave, err error) {
 			url        string
 			desc       string
 			timeToRead uint16
+			status     uint8
+			favorite   uint8
+			tags       string
 			addedOn    uint32
 			updatedOn  uint32
 		)
@@ -125,6 +132,9 @@ func GetPocketSaves() (list []models.PocketSave, err error) {
 			&url,
 			&desc,
 			&timeToRead,
+			&status,
+			&favorite,
+			&tags,
 			&addedOn,
 			&updatedOn,
 		); err != nil {
@@ -136,6 +146,9 @@ func GetPocketSaves() (list []models.PocketSave, err error) {
 			Url:             url,
 			SaveDescription: desc,
 			TimeToRead:      timeToRead,
+			Status:          status,
+			Favorite:        favorite == 1,
+			Tags:            tags,
 			AddedOn:         addedOn,
 			UpdatedOn:       updatedOn,
 		}
@@ -167,46 +180,61 @@ func SaveUser(accessToken, username string) (models.PocketUser, error) {
 	return user, err
 }
 
-func InsertSaves(since float64, saves []models.PocketSave) error {
+func InsertSaves(since float64, saves []models.PocketSave) ([]models.PocketSave, error) {
+	ret := make([]models.PocketSave, 0)
 	tx, err := DB.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: false})
 	if err != nil {
 		defer tx.Rollback()
-		return err
+		return ret, err
 	}
 	for _, save := range saves {
-		_, err := tx.Exec(
-			`INSERT INTO save(id, title, url, description, time_to_read, added_on, updated_on)
-			 VALUES(?,?,?,?,?,?,?)
+		if save.Status == models.StatusDeleted {
+			_, err = tx.Exec(
+				"DELETE FROM save where id = ?",
+				save.Id,
+			)
+		} else {
+			_, err = tx.Exec(
+				`INSERT INTO save(id, title, url, description, time_to_read, status, favorite, tags, added_on, updated_on)
+			 VALUES(?,?,?,?,?,?,?,?,?,?)
 			 ON CONFLICT(id) DO
 			 UPDATE SET
 			  title = excluded.title,
 				url = excluded.url,
 		description = excluded.description,
 	   time_to_read = excluded.time_to_read,
+			 status = excluded.status,
+		   favorite = excluded.favorite,
+			   tags = excluded.tags,
 		   added_on = excluded.added_on,
 		 updated_on = excluded.updated_on`,
-			save.Id,
-			save.SaveTitle,
-			save.Url,
-			save.SaveDescription,
-			save.TimeToRead,
-			save.AddedOn,
-			save.UpdatedOn,
-		)
+				save.Id,
+				save.SaveTitle,
+				save.Url,
+				save.SaveDescription,
+				save.TimeToRead,
+				save.Status,
+				save.Favorite,
+				save.Tags,
+				save.AddedOn,
+				save.UpdatedOn,
+			)
+		}
 		if err != nil {
 			defer tx.Rollback()
-			return err
+			return ret, err
 		}
+		ret = append(ret, save)
 	}
 	_, err = tx.Exec("UPDATE user SET saves_updated_on = ?", since)
 	if err != nil {
 		defer tx.Rollback()
-		return err
+		return ret, err
 	}
 	err = tx.Commit()
 	if err != nil {
 		defer tx.Rollback()
-		return err
+		return ret, err
 	}
-	return nil
+	return ret, nil
 }

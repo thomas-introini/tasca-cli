@@ -36,6 +36,7 @@ type RefreshSavesCmd struct {
 }
 
 type ViewSaveCmd struct {
+	Open bool
 	Save models.PocketSave
 }
 
@@ -63,29 +64,47 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
+	cmds := make([]tea.Cmd, 0)
 	var cmd tea.Cmd
+
+	m.spinner, cmd = m.spinner.Update(msg)
+	cmds = append(cmds, cmd)
+	m.list, cmd = m.list.Update(msg)
+	cmds = append(cmds, cmd)
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.list.FilterState() != list.Filtering {
 			switch msg.String() {
 			case "R":
-				cmd = func() tea.Msg {
+				cmds = append(cmds, func() tea.Msg {
 					return RefreshSavesCmd{}
-				}
+				})
 			case "o":
 				selected, ok := m.list.SelectedItem().(models.PocketSave)
 				if ok {
-					cmd = open(selected.Url)
+					cmds = append(cmds, open(selected.Url))
 				}
 			case "enter":
 				selected, ok := m.list.SelectedItem().(models.PocketSave)
 				if ok {
-					return m, func() tea.Msg {
-						return ViewSaveCmd{Save: selected}
-					}
+					cmds = append(cmds, func() tea.Msg {
+						return ViewSaveCmd{Open: true, Save: selected}
+					})
 				}
-			case "esc":
-				return m, nil
+			case tea.KeyDown.String():
+				fallthrough
+			case tea.KeyUp.String():
+				fallthrough
+			case "j":
+				fallthrough
+			case "k":
+				selected, ok := m.list.SelectedItem().(models.PocketSave)
+				if ok {
+					cmds = append(cmds, func() tea.Msg {
+						return ViewSaveCmd{Save: selected}
+					})
+				}
 			}
 		}
 	case openError:
@@ -97,11 +116,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.list.SetWidth(msg.Width)
 		m.list.SetHeight(msg.Height - 3)
 	}
-	var spinnerCmd tea.Cmd
-	m.spinner, spinnerCmd = m.spinner.Update(msg)
-	var listCmd tea.Cmd
-	m.list, listCmd = m.list.Update(msg)
-	return m, tea.Batch(cmd, spinnerCmd, listCmd)
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) View() string {
@@ -136,6 +151,7 @@ func New(user models.PocketUser) Model {
 	id.Styles.SelectedDesc = selectedItemDescriptionStyle
 
 	list := list.New(make([]list.Item, 0), id, 10, 10)
+	list.DisableQuitKeybindings()
 	list.Title = "Saves"
 	list.SetShowTitle(false)
 	list.Styles.Title = titleStyle

@@ -8,21 +8,30 @@ type PocketUser struct {
 	SavesUpdatedOn int32
 }
 
+const (
+	StatusOK       = 0
+	StatusArchived = 1
+	StatusDeleted  = 2
+)
+
 type PocketSave struct {
 	Id              string
 	SaveTitle       string
 	Url             string
 	SaveDescription string
 	TimeToRead      uint16
+	Favorite        bool
+	Status          uint8
+	Tags            string
 	AddedOn         uint32
 	UpdatedOn       uint32
 }
 
-type ByUpdatedOnDesc []PocketSave
+type ByAddedOnDesc []PocketSave
+func (s ByAddedOnDesc) Len() int           { return len(s) }
+func (s ByAddedOnDesc) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s ByAddedOnDesc) Less(i, j int) bool { return s[j].AddedOn < s[i].AddedOn }
 
-func (s ByUpdatedOnDesc) Len() int           { return len(s) }
-func (s ByUpdatedOnDesc) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s ByUpdatedOnDesc) Less(i, j int) bool { return s[j].UpdatedOn < s[i].UpdatedOn }
 
 func (i PocketSave) Title() (title string) {
 	if i.SaveTitle == "" {

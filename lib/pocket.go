@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	uuid "github.com/google/uuid"
 	"github.com/thomas-introini/pocket-cli/config"
@@ -108,7 +109,7 @@ func GetAllPocketSaves(accessToken string, since float64) (PocketSavesResponse, 
 		"access_token": accessToken,
 		"state":        "all",
 		"sort":         "newest",
-		"detailType":   "simple",
+		"detailType":   "complete",
 		"since":        since,
 	}
 	jsonBody, err := json.Marshal(body)
@@ -163,6 +164,26 @@ func GetAllPocketSaves(accessToken string, since float64) (PocketSavesResponse, 
 		if ttr := save["time_to_read"]; ttr != nil && ttr != "" {
 			timeToRead = uint16(ttr.(float64))
 		}
+		var favorite int
+		if fvrt := save["favorite"]; fvrt != nil && fvrt != "" {
+			if favorite, err = strconv.Atoi(fvrt.(string)); err != nil {
+				return PocketSavesResponse{}, err
+			}
+		}
+		var status int
+		if st := save["status"]; st != nil && st != "" {
+			if status, err = strconv.Atoi(st.(string)); err != nil {
+				return PocketSavesResponse{}, err
+			}
+		}
+		tagList := make([]string, 0)
+		tags := save["tags"]
+		if tags != nil {
+			tagMap := tags.(map[string]interface{})
+			for tag := range tagMap {
+				tagList = append(tagList, tag)
+			}
+		}
 
 		saves = append(saves, models.PocketSave{
 			Id:              save["item_id"].(string),
@@ -170,6 +191,9 @@ func GetAllPocketSaves(accessToken string, since float64) (PocketSavesResponse, 
 			Url:             save["given_url"].(string),
 			SaveDescription: excerpt,
 			TimeToRead:      timeToRead,
+			Favorite:        favorite == 1,
+			Status:          uint8(status),
+			Tags:            strings.Join(tagList, ","),
 			AddedOn:         uint32(addedOn),
 			UpdatedOn:       uint32(updatedOn),
 		})
