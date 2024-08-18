@@ -5,6 +5,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/joho/godotenv"
 	"github.com/thomas-introini/pocket-cli/config"
 	"github.com/thomas-introini/pocket-cli/db"
 	"github.com/thomas-introini/pocket-cli/globals"
@@ -12,6 +13,10 @@ import (
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		os.Exit(2)
+	}
 	if len(os.Getenv("DEBUG")) > 0 {
 		f, err := tea.LogToFile("debug.log", "info")
 		if err != nil {
@@ -27,7 +32,7 @@ func main() {
 		os.Exit(1)
 	}
 	config.InitConfig(pocketConsumerKey)
-	err := db.ConnectDB()
+	err = db.ConnectDB()
 	if err != nil {
 		fmt.Println("error connecting to database:", err)
 		os.Exit(1)

@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/thomas-introini/pocket-cli/commands"
 	"github.com/thomas-introini/pocket-cli/db"
 	"github.com/thomas-introini/pocket-cli/globals"
 	"github.com/thomas-introini/pocket-cli/helpkeys"
@@ -112,6 +113,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			m.itemdetail.SetItem(models.PocketSave{})
 		}
+	case commands.SetLabelMsg:
+		m.message.SetShow(msg.Show)
+		m.message.SetLabel(msg.Message)
 	case saves.RefreshSavesCmd:
 		cmds = append(cmds, refreshSaves(m))
 		m.message.SetShow(true)
@@ -159,6 +163,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.message, cmd = m.message.Update(msg)
 	cmds = append(cmds, cmd)
 	m.itemdetail, cmd = m.itemdetail.Update(msg)
+	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
 
@@ -234,6 +239,10 @@ func getItemDetailKeys(save models.PocketSave) help.KeyMap {
 		Open: key.NewBinding(
 			key.WithKeys("o"),
 			key.WithHelp("o", "open"),
+		),
+		GetContent: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g", "get article content"),
 		),
 		Delete: key.NewBinding(
 			key.WithKeys("D"),

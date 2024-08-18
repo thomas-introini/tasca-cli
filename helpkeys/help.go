@@ -3,12 +3,13 @@ package helpkeys
 import "github.com/charmbracelet/bubbles/key"
 
 type ItemdetailsKeys struct {
-	Quit      key.Binding
-	Open      key.Binding
-	Archive   key.Binding
-	Unarchive key.Binding
-	Delete    key.Binding
-	EditTags  key.Binding
+	Quit       key.Binding
+	Open       key.Binding
+	GetContent key.Binding
+	Archive    key.Binding
+	Unarchive  key.Binding
+	Delete     key.Binding
+	EditTags   key.Binding
 }
 
 func (m ItemdetailsKeys) FullHelp() [][]key.Binding {
@@ -26,5 +27,7 @@ func (m ItemdetailsKeys) ShortHelp() []key.Binding {
 		m.Quit,
 		m.Open,
 		m.Delete,
+		m.GetContent,
+		m.EditTags,
 	}
 }
