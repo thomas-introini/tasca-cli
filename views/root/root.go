@@ -23,7 +23,15 @@ import (
 	"github.com/thomas-introini/pocket-cli/views/auth"
 	"github.com/thomas-introini/pocket-cli/views/itemdetail"
 	"github.com/thomas-introini/pocket-cli/views/saves"
-	"github.com/thomas-introini/pocket-cli/views/spinnerlabel"
+	titlebar "github.com/thomas-introini/pocket-cli/views/toolbar"
+)
+
+type View int
+
+const (
+	Auth View = iota
+	SaveList
+	ItemDetail
 )
 
 type getSavesResult struct {
@@ -67,12 +75,13 @@ type model struct {
 	window         window
 	user           models.PocketUser
 	authenticating bool
+	currentView    View
+	titleBar       titlebar.Model
 	auth           auth.Model
 	saves          saves.Model
 	help           help.Model
 	itemdetail     itemdetail.Model
 	errorMessage   string
-	message        spinnerlabel.Model
 	keys           keyMap
 }
 
@@ -84,9 +93,9 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		tea.SetWindowTitle("Pocket CLI"),
 		tea.EnterAltScreen,
+		m.titleBar.Init(),
 		m.auth.Init(),
 		m.saves.Init(),
-		m.message.Init(),
 		loadSaves(m),
 	)
 }
@@ -114,12 +123,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.itemdetail.SetItem(models.PocketSave{})
 		}
 	case commands.SetLabelMsg:
-		m.message.SetShow(msg.Show)
-		m.message.SetLabel(msg.Message)
+		if msg.Show {
+			m.titleBar.ShowMessage(msg.Message)
+		} else {
+			m.titleBar.ClearMessage()
+		}
 	case saves.RefreshSavesCmd:
 		cmds = append(cmds, refreshSaves(m))
-		m.message.SetShow(true)
-		m.message.SetLabel("Refreshing saves...")
+		m.titleBar.ShowMessage("Refreshing saves...")
 	case saves.ViewSaveCmd:
 		if msg.Open || m.itemdetail.IsItemSet() {
 			save := msg.Save
@@ -153,14 +164,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.saves.SetSaves(msg.saves)
 		}
-		m.message.SetShow(false)
+		m.titleBar.ClearMessage()
 	}
 
 	m.saves, cmd = m.saves.Update(msg)
 	cmds = append(cmds, cmd)
 	m.auth, cmd = m.auth.Update(msg)
 	cmds = append(cmds, cmd)
-	m.message, cmd = m.message.Update(msg)
+	/* m.message, cmd = m.message.Update(msg)
+	cmds = append(cmds, cmd) */
+	m.titleBar, cmd = m.titleBar.Update(msg)
 	cmds = append(cmds, cmd)
 	m.itemdetail, cmd = m.itemdetail.Update(msg)
 	cmds = append(cmds, cmd)
@@ -188,12 +201,13 @@ func (m model) View() string {
 		tmp := m.auth.View()
 		view += strings.Repeat(" ", (m.window.width-lipgloss.Width(tmp))/2) + tmp
 	} else {
-		var msg string
+		/* var msg string
 		msg = m.message.View()
 		toolbarMaxWidth := m.window.width - 5
 		toolbarUser := lipgloss.NewStyle().MarginRight(1).Render(m.user.Username)
 		toolbarMessage := lipgloss.NewStyle().MarginLeft(1).Width(toolbarMaxWidth - 1 - lipgloss.Width(toolbarUser)).Render(msg)
-		view += styles.ToolbarMessage.Width(toolbarMaxWidth).Render(toolbarMessage+toolbarUser) + "\n"
+		view += styles.ToolbarMessage.Width(toolbarMaxWidth).Render(toolbarMessage+toolbarUser) + "\n" */
+		view += m.titleBar.View()
 		if m.itemdetail.IsItemSet() {
 			view += m.itemdetail.View()
 			helpView = m.help.View(getItemDetailKeys(m.itemdetail.GetItem()))
@@ -212,10 +226,11 @@ func New(user models.PocketUser) model {
 		window:         window{},
 		authenticating: false,
 		user:           user,
+		currentView:    SaveList,
+		titleBar:       titlebar.New(user.Username, "Tasca"),
 		auth:           auth.New(),
 		saves:          saves.New(user),
 		help:           help.New(),
-		message:        spinnerlabel.New("", "Tasca"),
 		itemdetail:     itemdetail.New(),
 		keys: keyMap{
 			Quit: key.NewBinding(
@@ -302,8 +317,7 @@ func startAuthentication() tea.Cmd {
 
 func loadSaves(m model) tea.Cmd {
 	if m.IsAuthenticated() {
-		m.message.SetShow(true)
-		m.message.SetLabel("Refreshing saves...")
+		m.titleBar.ShowMessage("Refreshing saves...")
 		return func() tea.Msg {
 			saves, err := db.GetPocketSaves()
 			if (err != nil && err == db.NoSavesErr) || len(saves) == 0 {
